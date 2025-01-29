@@ -59,6 +59,12 @@ def clean_adt_volume(path:str)->pd.DataFrame:
     
     # Step 7:
     new_midblocks = intersection_to_midblock(distinct_intersections,mean_cols,aux_cols)
+    
+    # Step 8:
+    final_df = pd.concat([distinct_midblocks,new_midblocks])
+    final_df['Volume'] = final_df['Volume'].astype(int)
+    final_df = final_df.drop(columns=['Road Segment Type','Location'])
+    return final_df.reset_index(drop=True)
 
 def aggregate_means(df:pd.DataFrame,mean_cols:list,aux_cols:list,group_by:str)->pd.DataFrame:
     """
@@ -129,10 +135,11 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.
                 df.loc[i,'Lat'] = new_lat
                 df.loc[i,'long'] = new_long
                 df.loc[i,'Road Segment Type'] = "Midblock"
-                
                 new_df_dict['Volume'].append(df.loc[i,dir])
                 for col in aux_cols:
                     new_df_dict[col].append(df.loc[i,col])
+                df.loc[i,'Lat'] = lat
+                df.loc[i,'long'] = long
     
     return pd.DataFrame(data=new_df_dict)
 
@@ -141,3 +148,4 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.
 if __name__ == "__main__":
     volume_data_path = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
     cleaned_volume_data = clean_adt_volume(volume_data_path)
+    cleaned_volume_data.to_excel("./data/excel_files/Cleaned_data.xlsx",index=False)
