@@ -143,9 +143,43 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.
     
     return pd.DataFrame(data=new_df_dict)
 
+def pair_road_class(path:str,df:pd.DataFrame)->pd.DataFrame:
+    """
+    Given a path to a .shp file, and a df containing cleaned information, class labels
+    are generated based on the closness of fit from each point in the df to the lines in the .shp file.
     
-
+    The following steps are taken:
+    
+    1. Lat and Long are required, and these columns are checked.
+    2. These columns are used to create a geometry column with shapely.geometry.points, and fed into a GeoDataFrame with UTM-12.
+    3. The shape file is read in as GeoDataFrame, and transformed into UTM-12 coordinates for comparison.
+    4. The two GeoDataFrames are matched based on closeness of study points to lines.
+    5. Final Resulting DataFrame is returned.
+    
+    A DataFrame containing all paired information is returned.
+    """
+    utm = 32612
+    wsg = 4326
+    
+    # Step 1
+    assert 'Lat' in df.columns,"Lat must be a column in the passed in DataFrame"
+    assert 'Long' in df.columns, "Long must be a column in the passed in DataFrame"
+    
+    # Step 2
+    df['Geometry'] = df.apply(lambda x: Point(x['Long'],x['Lat']),axis=1)
+    features_gf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{wgs}')
+    features_gf = features_gf.to_crs(epsg=utm)
+    
+    # Step 3
+    road_class_gf : gpd.GeoDataFrame = gpd.read_file(path)
+    road_class_gf = road_class_gf.to_crs(epsg=wsg)
+    
+    # Step 4
+    merged_gf = features_gf.sjoin_nearest(right=road_class_gf,how='left',distance_col='distance')
+    
+    print(merged_gf[['Volume','Id','Lat','Long','roadclass','distance']][merged_gf.index.duplicated(keep=False)])
+    print(merged_gf[merged_gf['distance'] == merged_gf['distance'].max()][['Lat','Long','roadclass']])
 if __name__ == "__main__":
-    volume_data_path = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
-    cleaned_volume_data = clean_adt_volume(volume_data_path)
-    cleaned_volume_data.to_excel("./data/excel_files/Cleaned_data.xlsx",index=False)
+    df = pd.read_excel('./data/excel_files/Cleaned_data.xlsx')
+    shp_file_path = './data/shape_files/RoadClass_CoE.shp'
+    pair_road_class(path=shp_file_path,df=df)
