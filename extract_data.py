@@ -49,7 +49,7 @@ def clean_adt_volume(path:str)->pd.DataFrame:
         intersections[f'{direction} Volume'] = intersections[f'{direction} Volume In'] + intersections[f'{direction} Adj. Out']
     
     # Step 5:
-    aux_cols = ['Id','Lat','Long','Location','Road Segment Type']
+    aux_cols = ['Id','Lat','Long','Location','Road Segment Type','Date']
     mean_cols = ['Volume']
     distinct_midblocks = aggregate_means(midblocks,mean_cols,aux_cols,'Location')
     
@@ -167,7 +167,7 @@ def pair_road_class(path:str,df:pd.DataFrame)->pd.DataFrame:
     
     # Step 2
     df['Geometry'] = df.apply(lambda x: Point(x['Long'],x['Lat']),axis=1)
-    features_gf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{wgs}')
+    features_gf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{wsg}')
     features_gf = features_gf.to_crs(epsg=utm)
     
     # Step 3
@@ -180,6 +180,6 @@ def pair_road_class(path:str,df:pd.DataFrame)->pd.DataFrame:
     print(merged_gf[['Volume','Id','Lat','Long','roadclass','distance']][merged_gf.index.duplicated(keep=False)])
     print(merged_gf[merged_gf['distance'] == merged_gf['distance'].max()][['Lat','Long','roadclass']])
 if __name__ == "__main__":
-    df = pd.read_excel('./data/excel_files/Cleaned_data.xlsx')
-    shp_file_path = './data/shape_files/RoadClass_CoE.shp'
-    pair_road_class(path=shp_file_path,df=df)
+    aggregate_data_path = "./data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx"
+    output = clean_adt_volume(aggregate_data_path)
+    output.to_excel('./data/excel_files/ADT_expanded_date_.xlsx',index=False)
