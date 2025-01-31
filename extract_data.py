@@ -1,7 +1,9 @@
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, MultiPolygon
+from shapely.wkt import loads
 from pyproj import Transformer
 import pandas as pd
+import datetime
 
 def clean_adt_volume(path:str)->pd.DataFrame:
     """
@@ -96,11 +98,12 @@ def aggregate_means(df:pd.DataFrame,mean_cols:list,aux_cols:list,group_by:str)->
     
     return pd.DataFrame(data=new_df_dict)
 
-def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.DataFrame:
+def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list,offset=20)->pd.DataFrame:
     """
     Input a df and redefine all intersections as midblocks with seperated volumes. This is done by calculating each point in EPSG:4236, 
     and then projecting to EPSG:32612, the UTM zone for Edmonton, adding X number for midblocks for each intersection, and then adding X new points
-    with new coordinates as defined as 8 meters away from each center with the corresponding volume for that direction. 
+    with new coordinates as defined as x meters away from each center with the corresponding volume for that direction. Offset distance (m) is applied 
+    when making the transformation.
     """
     df = df.reset_index(drop=True)
     to_utm = Transformer.from_crs("EPSG:4326","EPSG:32612",always_xy=True)
@@ -122,14 +125,13 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.
                 
                 match dir:
                     case "S Volume":
-                        y += 8
+                        y += offset
                     case "N Volume":
-                        y -= 8
+                        y -= offset
                     case "E Volume":
-                        x -= 8
+                        x -= offset
                     case "W Volume":
-                        x += 8
-                
+                        x += offset
                 new_long,new_lat = to_geo.transform(x,y)
                 
                 df.loc[i,'Lat'] = new_lat
@@ -143,7 +145,7 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list)->pd.
     
     return pd.DataFrame(data=new_df_dict)
 
-def pair_road_class(path:str,df:pd.DataFrame)->pd.DataFrame:
+def pair_road_class(path:str,df:pd.DataFrame,desired_cols=['Lat','Long','roadclass','Volume'])->pd.DataFrame:
     """
     Given a path to a .shp file, and a df containing cleaned information, class labels
     are generated based on the closness of fit from each point in the df to the lines in the .shp file.
@@ -169,17 +171,122 @@ def pair_road_class(path:str,df:pd.DataFrame)->pd.DataFrame:
     df['Geometry'] = df.apply(lambda x: Point(x['Long'],x['Lat']),axis=1)
     features_gf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{wsg}')
     features_gf = features_gf.to_crs(epsg=utm)
-    
+
     # Step 3
     road_class_gf : gpd.GeoDataFrame = gpd.read_file(path)
-    road_class_gf = road_class_gf.to_crs(epsg=wsg)
+    road_class_gf = road_class_gf.to_crs(epsg=utm)
     
     # Step 4
     merged_gf = features_gf.sjoin_nearest(right=road_class_gf,how='left',distance_col='distance')
+    merged_gf = merged_gf[~merged_gf.index.duplicated(keep='first')]
+        
+    # Step 5
+    return merged_gf[desired_cols]
+
+def pair_unique_id(df:pd.DataFrame,cols=['Lat','Long'])->pd.DataFrame:
+    """
+    Given a df, and cols, create a new column in the returned dataframe based
+    off a hash of the values of the listed columns combined.
     
-    print(merged_gf[['Volume','Id','Lat','Long','roadclass','distance']][merged_gf.index.duplicated(keep=False)])
-    print(merged_gf[merged_gf['distance'] == merged_gf['distance'].max()][['Lat','Long','roadclass']])
+    Returns: DataFrame
+    """
+    df = df.copy(deep=True)
+    df['UniqueID'] = df.apply(generate_hash,args=[cols],axis=1)
+    
+    assert df.shape[0] == len(df['UniqueID'].unique()), "Id's generated are not unique"
+    return df
+
+def generate_hash(row:dict,cols:list)->str:
+    """
+    Generate a hash based on the concatenated columns provided
+    
+    Return the hash
+    """
+    input_val = ''.join([str(row[col]) for col in cols])
+    return hash(input_val)
+
+def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Volume','Speed (km/h)'])->pd.DataFrame:
+    """
+    Given the df, the shp_file, and desired_cols, match the speed of the closest road from the shape_file, and return a DataFrame with the given cols.
+    
+    1. Turn the longitude and latitude points of each sample in shapely.geometry.Point, and
+    turn the df into a GeoDataFrame, and project this into UTM-12
+    2. Map the GeoDataFrame from the shp_file into UTM-12
+    3. Combine the two, and delete any duplicates
+    4. Return the joined data with the desired columns
+    """
+    geo = 4326
+    utm = 32612
+    
+    # Step 1
+    df = df.copy(deep=True)
+    df['Geometry'] = df.apply(lambda x: Point(x['Long'],x['Lat']),axis=1)
+    excel_gdf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{geo}')
+    excel_gdf = excel_gdf.to_crs(epsg=utm)
+    
+    # Step 2
+    speed_gdf : gpd.GeoDataFrame = gpd.read_file(shp_file)
+    speed_gdf = speed_gdf.to_crs(epsg=utm)
+    speed_gdf['speed_int'] = speed_gdf['speed'].astype(int)
+    speed_gdf['saved_geo'] = speed_gdf['geometry']
+    
+    
+    # Step 3
+    joined_data = excel_gdf.sjoin_nearest(right=speed_gdf,how='left',distance_col='distance')
+    duplicate_index = joined_data.index.duplicated(keep=False)
+    
+    # Impute the mean speed between duplicates. All duplicates had only two matches, 30 and 40km/h, so this is not a bad approach
+    duplicate_mean_speed = joined_data[duplicate_index].groupby(by='UniqueID',as_index=False)[['speed_int']].mean()
+    joined_data.loc[duplicate_index,'speed_int'] = duplicate_mean_speed['speed_int']
+    joined_data = joined_data[~joined_data.index.duplicated(keep='first')]
+    
+    
+    print(joined_data.columns)
+    # Step 4
+    joined_data = joined_data.rename(mapper={'speed_int':'Speed (km/h)'},axis=1)
+    
+    print(joined_data.columns)
+    
+    return joined_data[desired_cols]
+    
+def pair_land_use(df:pd.DataFrame,exl_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume'])->pd.DataFrame:
+    """
+    Given the dataframe, and the desired_cols, return a new DataFrame with land usage attached
+    
+    1. Create the points from the df,
+    2. Export the excel file with land usage and turn it into a geoframe
+    3. Join the two after projecting to utm
+    4. Return the data
+    """
+    geo = 4326
+    utm = 32612
+    
+    # Step 1
+    df['Geometry'] = df.apply(lambda x: Point(x['Long'],x['Lat']),axis=1)
+    excel_gdf = gpd.GeoDataFrame(data=df,geometry='Geometry',crs=f'EPSG:{geo}')
+    excel_gdf = excel_gdf.to_crs(epsg=utm)
+    
+    # Step 2
+    land_df = pd.read_excel(io=exl_file)
+    land_df['Geometry'] = land_df.apply(func=retrieve_multipolygon,axis=1,args=('geometry_multipolygon'))
+
+def retrieve_multipolygon(row:dict,col_name:str)-> MultiPolygon:
+    """
+    Given the row, and the col_name, turn thes string value in the corresponding
+    key based on the col_name, and turn in into a MultiPolygon
+    """
+    return loads(row[col_name])
+
 if __name__ == "__main__":
-    aggregate_data_path = "./data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx"
-    output = clean_adt_volume(aggregate_data_path)
-    output.to_excel('./data/excel_files/ADT_expanded_date_.xlsx',index=False)
+    # Do not delete
+    now = datetime.datetime.now()
+    df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
+    roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
+    speed_shp_file = './data/shape_files/Speed limit Shapfile.shp'
+    land_usage_file = './data/excel_files/Land Use Features.xlsx'
+    
+    # Start from here
+    df = pd.read_excel(df_save_name)
+    pair_land_use(df,land_usage_file)
+    
+    
