@@ -201,10 +201,10 @@ def generate_hash(row:dict,cols:list)->str:
     """
     Generate a hash based on the concatenated columns provided
     
-    Return the hash
+    Return the hash as string value
     """
     input_val = ''.join([str(row[col]) for col in cols])
-    return hash(input_val)
+    return str(hash(input_val))
 
 def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Volume','Speed (km/h)'])->pd.DataFrame:
     """
@@ -213,7 +213,7 @@ def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long
     1. Turn the longitude and latitude points of each sample in shapely.geometry.Point, and
     turn the df into a GeoDataFrame, and project this into UTM-12
     2. Map the GeoDataFrame from the shp_file into UTM-12
-    3. Combine the two, and delete any duplicates
+    3. Combine the two, and combine the speed of duplicates grouped by UniqueID
     4. Return the joined data with the desired columns
     """
     geo = 4326
@@ -228,25 +228,23 @@ def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long
     # Step 2
     speed_gdf : gpd.GeoDataFrame = gpd.read_file(shp_file)
     speed_gdf = speed_gdf.to_crs(epsg=utm)
-    speed_gdf['speed_int'] = speed_gdf['speed'].astype(int)
-    speed_gdf['saved_geo'] = speed_gdf['geometry']
+    speed_gdf['speed'] = speed_gdf['speed'].astype(int)
     
     
     # Step 3
     joined_data = excel_gdf.sjoin_nearest(right=speed_gdf,how='left',distance_col='distance')
-    print('Missing values in speed shape file',missing_values(df=speed_gdf,verbose=True))
     duplicate_index = joined_data.index.duplicated(keep=False)
     
     # Impute the mean speed between duplicates. All duplicates had only two matches, 30 and 40km/h, so this is not a bad approach
-    duplicate_mean_speed = joined_data[duplicate_index].groupby(by='UniqueID',as_index=False)[['speed_int']].mean()
-    joined_data.loc[duplicate_index,'speed_int'] = duplicate_mean_speed['speed_int']
+    duplicate_mean_speed : pd.DataFrame = joined_data[duplicate_index].groupby(by='UniqueID',as_index=False)[['speed']].mean()
+    speed_dict = dict(duplicate_mean_speed.apply(lambda x: (x['UniqueID'],x['speed']),axis=1).tolist())
+
+    joined_data.loc[duplicate_index,'speed'] = joined_data.loc[duplicate_index,'UniqueID'].map(speed_dict)
     joined_data = joined_data[~joined_data.index.duplicated(keep='first')]
     
     
     # Step 4
-    joined_data = joined_data.rename(mapper={'speed_int':'Speed (km/h)'},axis=1)
-    
-    
+    joined_data = joined_data.rename(mapper={'speed':'Speed (km/h)'},axis=1)
     return joined_data[desired_cols]
     
 def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume'])->pd.DataFrame:
@@ -255,7 +253,8 @@ def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long'
     
     1. Create the points from the df,
     2. Export the csv file with land usage and turn it into a geoframe
-    3. Join the two after projecting to utm
+    3. Join the two after projecting to utm, and remove any points that do not fall under
+    any land usage zones, as well as removing any duplicates.
     4. Return the data
     """
     geo = 4326
@@ -275,12 +274,13 @@ def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long'
         
     # Step 3
     joined_data : gpd.GeoDataFrame = excel_gdf.sjoin(df=land_gdf,how='left',predicate='within')
+    joined_data = joined_data.drop(joined_data[joined_data['Category'].isna()].index,axis=0)
     
     # Based on manual check, keep last
     joined_data = joined_data[~joined_data.index.duplicated(keep='last')]
     joined_data = joined_data.rename(mapper={'Category':'Land Usage'},axis=1)
-    # Step 4
     
+    # Step 4
     return joined_data[desired_cols]
 
 def missing_values(df:pd.DataFrame,verbose=False)->bool:
@@ -308,25 +308,15 @@ def missing_values(df:pd.DataFrame,verbose=False)->bool:
 if __name__ == "__main__":
     # Do not delete
     now = datetime.datetime.now()
-    df_save_name = f'./data/excel_files/features{now.month}-{now.day-1}-{now.year}.xlsx'
+    df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
     unclean_file = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
     roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
     speed_shp_file = './data/shape_files/Speed limit Shapfile.shp'
     land_usage_file = './data/excel_files/Land Use Features.csv'
     
     # Start from here
+    df = pd.read_excel(df_save_name)
     
-    # Comprehensive test to see if there are any things that cause NA rows
-    df = clean_adt_volume(unclean_file)
-    print('Clean adt missing values',missing_values(df=df))
-    df = pair_road_class(df=df,path=roadclass_shp_file)
-    print('Road class missing values',missing_values(df=df))
-    df = pair_unique_id(df=df)
-    print('Unique Id missing values',missing_values(df=df))
-    df = pair_speed(df=df,shp_file=speed_shp_file)
-    print('Speed missing values',missing_values(df=df))
-    df = pair_land_use(df=df,file=land_usage_file,)
-    print('Land Use missing values',missing_values(df=df))
     
     
     
