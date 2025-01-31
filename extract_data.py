@@ -4,6 +4,7 @@ from shapely.wkt import loads
 from pyproj import Transformer
 import pandas as pd
 import datetime
+import matplotlib.pyplot as plt
 
 def clean_adt_volume(path:str)->pd.DataFrame:
     """
@@ -233,6 +234,7 @@ def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long
     
     # Step 3
     joined_data = excel_gdf.sjoin_nearest(right=speed_gdf,how='left',distance_col='distance')
+    print('Missing values in speed shape file',missing_values(df=speed_gdf,verbose=True))
     duplicate_index = joined_data.index.duplicated(keep=False)
     
     # Impute the mean speed between duplicates. All duplicates had only two matches, 30 and 40km/h, so this is not a bad approach
@@ -241,20 +243,18 @@ def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long
     joined_data = joined_data[~joined_data.index.duplicated(keep='first')]
     
     
-    print(joined_data.columns)
     # Step 4
     joined_data = joined_data.rename(mapper={'speed_int':'Speed (km/h)'},axis=1)
     
-    print(joined_data.columns)
     
     return joined_data[desired_cols]
     
-def pair_land_use(df:pd.DataFrame,exl_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume'])->pd.DataFrame:
+def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume'])->pd.DataFrame:
     """
     Given the dataframe, and the desired_cols, return a new DataFrame with land usage attached
     
     1. Create the points from the df,
-    2. Export the excel file with land usage and turn it into a geoframe
+    2. Export the csv file with land usage and turn it into a geoframe
     3. Join the two after projecting to utm
     4. Return the data
     """
@@ -267,26 +267,68 @@ def pair_land_use(df:pd.DataFrame,exl_file:str,desired_cols=['UniqueID','Lat','L
     excel_gdf = excel_gdf.to_crs(epsg=utm)
     
     # Step 2
-    land_df = pd.read_excel(io=exl_file)
-    land_df['Geometry'] = land_df.apply(func=retrieve_multipolygon,axis=1,args=('geometry_multipolygon'))
+    land_df = pd.read_csv(file)
+    land_df['Geometry'] = land_df.apply(lambda x:loads(x['geometry_multipolygon']),axis=1)
+    land_gdf = gpd.GeoDataFrame(data=land_df,geometry='Geometry',crs=f'EPSG:{geo}')
+    land_gdf = land_gdf.to_crs(epsg=utm)
+    land_gdf : gpd.GeoDataFrame = land_gdf[['Geometry','Category']]
+        
+    # Step 3
+    joined_data : gpd.GeoDataFrame = excel_gdf.sjoin(df=land_gdf,how='left',predicate='within')
+    
+    # Based on manual check, keep last
+    joined_data = joined_data[~joined_data.index.duplicated(keep='last')]
+    joined_data = joined_data.rename(mapper={'Category':'Land Usage'},axis=1)
+    # Step 4
+    
+    return joined_data[desired_cols]
 
-def retrieve_multipolygon(row:dict,col_name:str)-> MultiPolygon:
+def missing_values(df:pd.DataFrame,verbose=False)->bool:
     """
-    Given the row, and the col_name, turn thes string value in the corresponding
-    key based on the col_name, and turn in into a MultiPolygon
+    For a given df, checks each column to see if it is na, and returns true or false.
+    
+    Verbose option avaible to see name of column with missing data
     """
-    return loads(row[col_name])
+    cols = df.columns.to_list()
+    
+    i = 0
+    missing = False
+    
+    while not missing and i < len(cols):
+        length = len( df[cols[i]][df[cols[i]].isna()])
+        
+        if length > 0:
+            missing = True
+            if verbose:
+                print('Missing column is',cols[i])
+        i +=1
+    
+    return missing
 
 if __name__ == "__main__":
     # Do not delete
     now = datetime.datetime.now()
-    df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
+    df_save_name = f'./data/excel_files/features{now.month}-{now.day-1}-{now.year}.xlsx'
+    unclean_file = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
     roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
     speed_shp_file = './data/shape_files/Speed limit Shapfile.shp'
-    land_usage_file = './data/excel_files/Land Use Features.xlsx'
+    land_usage_file = './data/excel_files/Land Use Features.csv'
     
     # Start from here
-    df = pd.read_excel(df_save_name)
-    pair_land_use(df,land_usage_file)
+    
+    # Comprehensive test to see if there are any things that cause NA rows
+    df = clean_adt_volume(unclean_file)
+    print('Clean adt missing values',missing_values(df=df))
+    df = pair_road_class(df=df,path=roadclass_shp_file)
+    print('Road class missing values',missing_values(df=df))
+    df = pair_unique_id(df=df)
+    print('Unique Id missing values',missing_values(df=df))
+    df = pair_speed(df=df,shp_file=speed_shp_file)
+    print('Speed missing values',missing_values(df=df))
+    df = pair_land_use(df=df,file=land_usage_file,)
+    print('Land Use missing values',missing_values(df=df))
+    
+    
+    
     
     
