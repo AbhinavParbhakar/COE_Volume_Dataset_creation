@@ -1,5 +1,5 @@
 import geopandas as gpd
-from shapely.geometry import Point, MultiPolygon
+from shapely.geometry import Point, Polygon
 from shapely.wkt import loads
 from pyproj import Transformer
 import pandas as pd
@@ -305,6 +305,37 @@ def missing_values(df:pd.DataFrame,verbose=False)->bool:
     
     return missing
 
+def crop_buildings(file_path:str)->gpd.GeoDataFrame:
+    """
+    Given the file path for a .shp file detailing the buildings in all of Alberta, crop and clip based on the area
+    around edmonton as specified by the polygon created.
+    """
+    coordinates = [[-113.335075,53.655685],
+                [-113.690405,53.648387],
+                [-113.687767,53.418376],
+                [-113.320123,53.426762]]
+    
+    geo = 4326
+    prs = 32612
+    
+    region_of_interest = Polygon(coordinates)
+    map_info = {'name':['area'],'geometry':[region_of_interest]}
+    roi = gpd.GeoDataFrame(data=map_info,geometry='geometry',crs=f'EPSG:{geo}')
+    roi = roi.to_crs(epsg=prs)
+    alberta_buildings : gpd.GeoDataFrame = gpd.read_file(file_path)
+    alberta_buildings = alberta_buildings.to_crs(epsg=prs)
+    
+    cropped_area = alberta_buildings.clip(roi)
+    
+    
+    fig, ax = plt.subplots(figsize=(10,10))
+    
+    cropped_area.plot(ax=ax)
+    ax.set_axis_off()
+    plt.savefig('./data/graphs/COE_buildings.png')
+    
+    return cropped_area
+
 if __name__ == "__main__":
     # Do not delete
     now = datetime.datetime.now()
@@ -313,9 +344,12 @@ if __name__ == "__main__":
     roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
     speed_shp_file = './data/shape_files/Speed limit Shapfile.shp'
     land_usage_file = './data/excel_files/Land Use Features.csv'
+    taz_file1 = './data/shape_files/TAZ1718.shp'
+    buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
     
     # Start from here
-    df = pd.read_excel(df_save_name)
+    gdf = crop_buildings(buildings)
+    gdf.to_csv('./data/excel_files/cropped_buildings',index=False)
     
     
     
