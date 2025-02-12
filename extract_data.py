@@ -373,7 +373,7 @@ if __name__ == "__main__":
     df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
     unclean_file = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
     roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
-    speed_shp_file = './data/shape_files/Speed limit Shapfile.shp'
+    speed_shp_file = './data/shape_files/geo_export_c308b940-35d0-404d-80ad-acad001f34a2.shp'
     land_usage_file = './data/excel_files/Land Use Features.csv'
     taz_file1 = './data/shape_files/TAZ1718.shp'
     buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
