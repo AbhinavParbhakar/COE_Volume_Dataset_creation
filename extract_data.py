@@ -61,13 +61,38 @@ def clean_adt_volume(path:str)->pd.DataFrame:
     distinct_intersections = aggregate_means(intersections,mean_cols,aux_cols,'Location')
     
     # Step 7:
-    new_midblocks = intersection_to_midblock(distinct_intersections,mean_cols,aux_cols)
+    new_midblocks = intersection_to_midblock(distinct_intersections,mean_cols,aux_cols=['Id','Location','Road Segment Type','Date'])
     
     # Step 8:
     final_df = pd.concat([distinct_midblocks,new_midblocks])
     final_df['Volume'] = final_df['Volume'].astype(int)
     final_df = final_df.drop(columns=['Road Segment Type','Location'])
     return final_df.reset_index(drop=True)
+
+def create_shape_file(df:pd.DataFrame,file_name="shape_file")->None:
+    """
+    Given a dataframe containing "Lat" and "Long" columns, create a shape file with the corresponding file name
+    """
+    lat_col_name = "Lat"
+    long_col_name = "Long"
+    lat_col_found = False
+    long_col_found = False
+    
+    crs = 4326
+    
+    for x in df.columns.tolist():
+        if x == lat_col_name:
+            lat_col_found = True
+        if x == long_col_name:
+            long_col_found = True
+    
+    assert lat_col_found, "Lat column not present"
+    assert long_col_found, "Long column no present"
+    
+    df = df.copy()
+    df["Geometry"] = df.apply(lambda x: Point(x["Long"],x["Lat"]),axis=1)
+    gf = gpd.GeoDataFrame(data=df,geometry="Geometry",crs=f"EPSG:{crs}")
+    gf.to_file(f'./data/shape_files/{file_name}.shp')
 
 def aggregate_means(df:pd.DataFrame,mean_cols:list,aux_cols:list,group_by:str)->pd.DataFrame:
     """
@@ -106,12 +131,16 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list,offse
     with new coordinates as defined as x meters away from each center with the corresponding volume for that direction. Offset distance (m) is applied 
     when making the transformation.
     """
+    df = df.copy()
     df = df.reset_index(drop=True)
+    
     to_utm = Transformer.from_crs("EPSG:4326","EPSG:32612",always_xy=True)
     to_geo = Transformer.from_crs("EPSG:32612","EPSG:4326",always_xy=True)
     
     new_df_dict = {}
     new_df_dict['Volume'] = []
+    new_df_dict['Lat'] = []
+    new_df_dict['Long'] = []
     
     for col in aux_cols:
         new_df_dict[col] = []
@@ -135,18 +164,19 @@ def intersection_to_midblock(df:pd.DataFrame,directions:list,aux_cols:list,offse
                         x += offset
                 new_long,new_lat = to_geo.transform(x,y)
                 
-                df.loc[i,'Lat'] = new_lat
-                df.loc[i,'long'] = new_long
+
                 df.loc[i,'Road Segment Type'] = "Midblock"
                 new_df_dict['Volume'].append(df.loc[i,dir])
+                new_df_dict['Lat'].append(new_lat)
+                new_df_dict['Long'].append(new_long)
                 for col in aux_cols:
                     new_df_dict[col].append(df.loc[i,col])
-                df.loc[i,'Lat'] = lat
-                df.loc[i,'long'] = long
-    
-    return pd.DataFrame(data=new_df_dict)
 
-def pair_road_class(path:str,df:pd.DataFrame,desired_cols=['Lat','Long','roadclass','Volume'])->pd.DataFrame:
+    
+    new_midblocks = pd.DataFrame(data=new_df_dict)
+    return new_midblocks
+
+def pair_road_class(path:str,df:pd.DataFrame,desired_cols=['Lat','Long','roadclass','Volume','Date'])->pd.DataFrame:
     """
     Given a path to a .shp file, and a df containing cleaned information, class labels
     are generated based on the closness of fit from each point in the df to the lines in the .shp file.
@@ -206,7 +236,7 @@ def generate_hash(row:dict,cols:list)->str:
     input_val = ''.join([str(row[col]) for col in cols])
     return str(hash(input_val))
 
-def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Volume','Speed (km/h)'])->pd.DataFrame:
+def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Volume','Speed (km/h)','Date'])->pd.DataFrame:
     """
     Given the df, the shp_file, and desired_cols, match the speed of the closest road from the shape_file, and return a DataFrame with the given cols.
     
@@ -247,7 +277,7 @@ def pair_speed(df:pd.DataFrame,shp_file:str,desired_cols=['UniqueID','Lat','Long
     joined_data = joined_data.rename(mapper={'speed':'Speed (km/h)'},axis=1)
     return joined_data[desired_cols]
     
-def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume'])->pd.DataFrame:
+def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long','roadclass','Speed (km/h)','Land Usage','Volume','Date'])->pd.DataFrame:
     """
     Given the dataframe, and the desired_cols, return a new DataFrame with land usage attached
     
@@ -281,7 +311,8 @@ def pair_land_use(df:pd.DataFrame,file:str,desired_cols=['UniqueID','Lat','Long'
     joined_data = joined_data.rename(mapper={'Category':'Land Usage'},axis=1)
     
     # Step 4
-    return joined_data[desired_cols]
+    return_result = joined_data[desired_cols]
+    return return_result
 
 def missing_values(df:pd.DataFrame,verbose=False)->bool:
     """
@@ -348,8 +379,12 @@ if __name__ == "__main__":
     buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
     
     # Start from here
-    gdf = crop_buildings(buildings)
-    gdf.to_csv('./data/excel_files/cropped_buildings',index=False)
+    df = clean_adt_volume(unclean_file)
+    df = pair_road_class(roadclass_shp_file,df=df)
+    df = pair_unique_id(df=df)
+    df = pair_speed(df=df,shp_file=speed_shp_file)
+    df = pair_land_use(df=df,file=land_usage_file)
+    df.to_excel(df_save_name,index=False)
     
     
     
