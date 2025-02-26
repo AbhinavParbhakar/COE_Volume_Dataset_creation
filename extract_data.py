@@ -341,31 +341,50 @@ def crop_buildings(file_path:str)->gpd.GeoDataFrame:
     Given the file path for a .shp file detailing the buildings in all of Alberta, crop and clip based on the area
     around edmonton as specified by the polygon created.
     """
-    coordinates = [[-113.335075,53.655685],
-                [-113.690405,53.648387],
-                [-113.687767,53.418376],
-                [-113.320123,53.426762]]
     
     geo = 4326
     prs = 32612
     
-    region_of_interest = Polygon(coordinates)
+    center_point = Point(-113.502327,53.527021)
+    
+    region_of_interest = return_roi(center_point,200)
     map_info = {'name':['area'],'geometry':[region_of_interest]}
-    roi = gpd.GeoDataFrame(data=map_info,geometry='geometry',crs=f'EPSG:{geo}')
+    roi = gpd.GeoDataFrame(data=map_info,geometry='geometry',crs=f'EPSG:{prs}')
     roi = roi.to_crs(epsg=prs)
     alberta_buildings : gpd.GeoDataFrame = gpd.read_file(file_path)
     alberta_buildings = alberta_buildings.to_crs(epsg=prs)
     
     cropped_area = alberta_buildings.clip(roi)
     
-    
-    fig, ax = plt.subplots(figsize=(10,10))
+    fig, ax = plt.subplots(figsize=(6,6))
     
     cropped_area.plot(ax=ax)
     ax.set_axis_off()
     plt.savefig('./data/graphs/COE_buildings.png')
     
     return cropped_area
+
+def return_roi(point:Point,margin:int)->Polygon:
+    """
+    Given a shapely.Point, return a shapely.Polygon in EPSG:32612 with the specified amount of margin on each side in meters
+    """
+    to_utm = Transformer.from_crs("EPSG:4326","EPSG:32612",always_xy=True)
+    to_geo = Transformer.from_crs("EPSG:32612","EPSG:4326",always_xy=True)
+    x, y = to_utm.transform(point.x,point.y)
+    
+    y_lower_bound = y - margin
+    y_upper_bound = y + margin
+    x_upper_bound = x + margin
+    x_lower_bound = x - margin
+    
+    coordinate = [(x_upper_bound,y_lower_bound),
+                  (x_lower_bound,y_lower_bound),
+                  (x_lower_bound,y_upper_bound),
+                  (x_upper_bound,y_upper_bound),
+                  ]
+    
+    return Polygon(coordinate)
+    
 
 if __name__ == "__main__":
     # Do not delete
@@ -379,13 +398,8 @@ if __name__ == "__main__":
     buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
     
     # Start from here
-    df = clean_adt_volume(unclean_file)
-    df = pair_road_class(roadclass_shp_file,df=df)
-    df = pair_unique_id(df=df)
-    df = pair_speed(df=df,shp_file=speed_shp_file)
-    df = pair_land_use(df=df,file=land_usage_file)
-    df.to_excel(df_save_name,index=False)
     
+    crop_buildings(buildings)
     
     
     
