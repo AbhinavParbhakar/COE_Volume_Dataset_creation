@@ -133,7 +133,7 @@ def capture_coarse_images(input_file:str,output_name:str,delete_html_file=False)
         context = browser.new_context()
         page = context.new_page()
         page.set_default_navigation_timeout(60000)
-        page.goto(path)
+        page.goto(path,wait_until='domcontentloaded')
         time.sleep(30)
         page.screenshot(path=output_name,full_page=True,clip=screenshot_settings)
         
