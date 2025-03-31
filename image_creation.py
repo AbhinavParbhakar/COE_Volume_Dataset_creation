@@ -25,10 +25,11 @@ def create_output_html(line:ee.geometry.Geometry.LineString,file_name='output.ht
     zoomed in on that line by taking images
     from Sentinel-2. 
     """
+    graph_centroid = ee.geometry.Geometry.Point(coords=[-113.206044,53.542114])
     graph = (
         ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-        .filterBounds(line)
-        .filterDate('2019-01-01', '2019-12-31')
+        .filterBounds(graph_centroid)
+        .filterDate('2024-05-01', '2024-09-30')
         .sort('CLOUDY_PIXEL_PERCENTAGE')
         .first()
     )
@@ -237,9 +238,9 @@ if __name__ == "__main__":
     data_file = './data/excel_files/data_with_lines.csv'
     
     # files_to_delete = [102996, 104526, 514704, 514712, 515176, 530565, 530695, 530699, 530735, 530739, 530743, 966715, 967572, 1007611, 1017467, 1017468, 1095481, 1123698, 1121514, 1123614] 
-    # create_granular_images(data_file,files_to_delete)
+    create_granular_images(data_file)
     
-    create_coarse_output(excel_file=data_file)
+    #create_coarse_output(excel_file=data_file)
     
     # file_path = f'C:\\Users\\abhin\\OneDrive\\Documents\\Computing\\Research\\City of Edmonton Volume Prediction\\City of Edmonton Volume Data Creation\\data\\images'
    
