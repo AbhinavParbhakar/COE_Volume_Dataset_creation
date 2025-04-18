@@ -7,6 +7,7 @@ import ast
 from playwright.sync_api import sync_playwright
 import os
 import time
+import numpy as np
 from multiprocessing import Pool
 import multiprocessing
 from bs4 import BeautifulSoup
@@ -35,7 +36,7 @@ def create_output_html(line:ee.geometry.Geometry.LineString,file_name='output.ht
     )
     
     map = geemap.Map()
-    map.center_object(line,15)
+    map.center_object(line,14)
     map.add_layer(
         graph, {'bands': ['B4', 'B3', 'B2'], 'min': 0, 'max': 2000}, 'graph'
     )
@@ -49,17 +50,20 @@ def create_output_html(line:ee.geometry.Geometry.LineString,file_name='output.ht
     
     return os.path.abspath(file_name)
 
-def create_zoomed_in_images(file_name,save_name='Image.png',delete_html_file=False)->None:
+def create_zoomed_in_images(file_name,height:int,width:int,save_name='Image.png',delete_html_file=False)->None:
     """
     Given a file containing a path to an html page, take a screenshot and then save that screenshot  
     with the given save name. The delete_html_file option can be passed in as true to delete the html file to free up space
     """
     
     # The settings treat the top left corner of the page as (0,0)
-    screenshot_settings = {'height': 256, 'width': 256, 'x': 512, 'y': 163 }
+    
+    x = 640 - width / 2
+    y = 308 - height / 2
+    screenshot_settings = {'height': height, 'width': width, 'x': x, 'y': y }
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
         page.goto(file_name)
@@ -70,7 +74,7 @@ def create_zoomed_in_images(file_name,save_name='Image.png',delete_html_file=Fal
         os.remove(file_name)
     
 
-def create_granular_output(line:ee.geometry.Geometry,file_name:str):
+def create_granular_output(line:ee.geometry.Geometry,file_name:str,height:int,width:int):
     """
     Given the line and the file name, created images with the Estimation Id as the name and 
     stores it in images folder
@@ -80,9 +84,9 @@ def create_granular_output(line:ee.geometry.Geometry,file_name:str):
     html_file = create_output_html(line,file_name)
     estimation_point_id = os.path.basename(html_file).split('.')[0]
     save_name = f'./data/images/{estimation_point_id}.png'
-    create_zoomed_in_images(html_file,save_name=save_name,delete_html_file=True)
+    create_zoomed_in_images(html_file,save_name=save_name,delete_html_file=True,height=height,width=width)
 
-def create_granular_images(data_file,target_list=None)->list[str]:
+def create_granular_images(data_file,target_list=None,height=256,width=256)->list[str]:
     """
     Given the data file containing geometries, see what one looks like
     on the screen. Capable of only using the rows where the ID matches value in target
@@ -93,10 +97,10 @@ def create_granular_images(data_file,target_list=None)->list[str]:
     df = pd.read_csv(data_file)
     
     if target_list:
-        df = df[df.apply(lambda x: x['Estimation_point'] in target_list,axis=1)]
+        df = df[df['Estimation_point'].isin(target_list)]
     
     df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['road_geo'])),axis=1)
-    arguments = df.apply(lambda x: (x['ee_geometry'],f'./data/html_files/{x['Estimation_point']}.html'),axis=1)
+    arguments = df.apply(lambda x: (x['ee_geometry'],f'./data/html_files/{x['Estimation_point']}.html',height,width),axis=1)
     
     with Pool(multiprocessing.cpu_count()) as p:
         p.starmap(create_granular_output,iterable=arguments.tolist())    
@@ -235,10 +239,10 @@ def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str):
     
 
 if __name__ == "__main__":
-    data_file = './data/excel_files/data_with_lines.csv'
+    data_file = './data/excel_files/data_with_lines.csv'    
     
     # files_to_delete = [102996, 104526, 514704, 514712, 515176, 530565, 530695, 530699, 530735, 530739, 530743, 966715, 967572, 1007611, 1017467, 1017468, 1095481, 1123698, 1121514, 1123614] 
-    create_granular_images(data_file)
+    create_granular_images(data_file,height=64,width=64)
     
     #create_coarse_output(excel_file=data_file)
     
