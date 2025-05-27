@@ -67,7 +67,7 @@ def create_zoomed_in_images(file_name,height:int,width:int,save_name='Image.png'
         context = browser.new_context()
         page = context.new_page()
         page.goto(file_name)
-        time.sleep(30)
+        time.sleep(15)
         page.screenshot(path=save_name,full_page=True,clip=screenshot_settings)
     
     if delete_html_file:
@@ -99,7 +99,8 @@ def create_granular_images(data_file,target_list=None,height=256,width=256)->lis
     if target_list:
         df = df[df['Estimation_point'].isin(target_list)]
     
-    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['road_geo'])),axis=1)
+
+    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['roadgeo'])),axis=1)
     arguments = df.apply(lambda x: (x['ee_geometry'],f'./data/html_files/{x['Estimation_point']}.html',height,width),axis=1)
     
     with Pool(multiprocessing.cpu_count()) as p:
@@ -107,7 +108,7 @@ def create_granular_images(data_file,target_list=None,height=256,width=256)->lis
     return None
 
 
-def create_coarse_output(excel_file:str,target_files=None)->None:
+def create_coarse_output(excel_file:str,target_files=None,rows=4)->None:
     """
     Given the excel file, map each location into a grid and generated that image.
     
@@ -121,8 +122,11 @@ def create_coarse_output(excel_file:str,target_files=None)->None:
     ee.Authenticate()
     ee.Initialize(project='ee-city-of-edmonton-modeling')
     df = pd.read_csv(excel_file)
-    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['road_geo'])),axis=1)
-    arguments = df.apply(lambda x: (x['ee_geometry'],x['Estimation_point']),axis=1)
+    
+    if target_files:
+        df = df[df['Estimation_point'].isin(target_files)]
+    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['roadgeo'])),axis=1)
+    arguments = df.apply(lambda x: (x['ee_geometry'],x['Estimation_point'],rows),axis=1)
     
     with Pool(multiprocessing.cpu_count()) as p:
         p.starmap(create_coarse_images,iterable=arguments.tolist())
@@ -130,16 +134,16 @@ def create_coarse_output(excel_file:str,target_files=None)->None:
 
 def capture_coarse_images(input_file:str,output_name:str,delete_html_file=False):
     # The settings treat the top left corner of the page as (0,0)
-    screenshot_settings = {'height': 591, 'width': 709, 'x': 313, 'y': 16 }
+    screenshot_settings = {'height': 712, 'width': 712, 'x': 314, 'y': 17 }
     
     path = os.path.abspath(input_file)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
-        page.set_default_navigation_timeout(60000)
+        page.set_default_navigation_timeout(80000)
         page.goto(path,wait_until='domcontentloaded')
-        time.sleep(30)
+        time.sleep(60)
         page.screenshot(path=output_name,full_page=True,clip=screenshot_settings)
         
         page.close()
@@ -148,15 +152,15 @@ def capture_coarse_images(input_file:str,output_name:str,delete_html_file=False)
     if delete_html_file:
         os.remove(input_file)
         
-def create_coarse_html(road_segment:ee.geometry.Geometry,file_path:str):
+def create_coarse_html(road_segment:ee.geometry.Geometry,file_path:str,rows:int):
     graph_centroid = ee.geometry.Geometry.Point(coords=[-113.206044,53.542114])
     zoom_centroid =   ee.geometry.Geometry.Point(coords=[-113.506804, 53.539434])
-    bounding_box = ee.geometry.Geometry.BBox(north=53.658239,west=-113.730658,south= 53.399708,east=-113.244793)
-    grids = geemap.fishnet(bounding_box,rows=15,cols=15)
+    bounding_box = ee.geometry.Geometry.BBox(north=53.658239,west=-113.730658,south= 53.367852,east=-113.241969)
+    grids = geemap.fishnet(bounding_box,rows=rows,cols=rows)
     
 
-    cropped_grids = grids.map(lambda f: f.set('keep',bounding_box.contains(f.geometry()))).filter(ee.filter.Filter.eq(name='keep',value=True))
-    roi : ee.featurecollection.FeatureCollection = cropped_grids.map(lambda f: f.set('intersects',road_segment.intersects(f.geometry(),maxError=1))).filter(ee.filter.Filter.eq(name='intersects',value=True))
+    #cropped_grids = grids.map(lambda f: f.set('keep',bounding_box.contains(f.geometry()))).filter(ee.filter.Filter.eq(name='keep',value=True))
+    roi : ee.featurecollection.FeatureCollection = grids.map(lambda f: f.set('intersects',road_segment.intersects(f.geometry(),maxError=1))).filter(ee.filter.Filter.eq(name='intersects',value=True))
 
     grid_style =  {'color': '000000ff', 'width': 1, 'fillColor': '00000000'}
     bbox_style = {'color': 'ff0000ff', 'width': 2, 'fillColor': 'ff000080'}
@@ -176,18 +180,19 @@ def create_coarse_html(road_segment:ee.geometry.Geometry,file_path:str):
     map.add_layer(
         graph, {'bands': ['B4', 'B3', 'B2'], 'min': 0, 'max': 2000}, 'graph'
     )
+    
     map.add_layer(
-        cropped_grids.style(**grid_style),
+        grids.style(**grid_style),
         {},
-        'box'
+        'Grid'
     )
     
     map.add_layer(
-        roi.style(**bbox_style),
-        {},
+        roi,
+        bbox_style,
         'Region of Interest'
     )
-    
+        
     map.save(file_path)
 
 def clean_html_file(html_file_path:str):
@@ -203,7 +208,7 @@ def clean_html_file(html_file_path:str):
     path = os.path.abspath(html_file_path)
     page_content = ""
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
         page.goto(path)
@@ -211,13 +216,18 @@ def clean_html_file(html_file_path:str):
         page_content = page.content()
     
     html = BeautifulSoup(page_content,'html.parser')
+    
+    main_container = html.find(name="div",attrs={'class':'lm-Widget'})
+    
+    main_container['style'] = "height: 800px"
+    
     for tag in html.find_all("div",attrs={'class':'leaflet-control-container'}):
         tag.decompose()
     
     with open(html_file_path,'w') as file:
         file.write(html.prettify())
 
-def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str):
+def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str,rows:int):
     """
     Create the image files containing the filled in coarse grids 
     Parameters
@@ -231,7 +241,7 @@ def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str):
     ee.Initialize(project='ee-city-of-edmonton-modeling')
     html_save_path = f'./data/html_files/{file_name}.html'
     image_save_path = f'./data/images/{file_name}.png'
-    create_coarse_html(road_segment=road_segment,file_path=html_save_path)
+    create_coarse_html(road_segment=road_segment,file_path=html_save_path,rows=rows)
     clean_html_file(html_save_path)
     capture_coarse_images(input_file=html_save_path,output_name=image_save_path,delete_html_file=True)
     
@@ -239,18 +249,16 @@ def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str):
     
 
 if __name__ == "__main__":
-    data_file = './data/excel_files/data_with_lines.csv'    
+    data_file = './data/excel_files/1.5_geometry.csv'    
+    df = pd.read_csv(data_file)
+    missing_files = []
     
-    # files_to_delete = [102996, 104526, 514704, 514712, 515176, 530565, 530695, 530699, 530735, 530739, 530743, 966715, 967572, 1007611, 1017467, 1017468, 1095481, 1123698, 1121514, 1123614] 
-    create_granular_images(data_file,height=64,width=64)
-    
-    #create_coarse_output(excel_file=data_file)
-    
-    # file_path = f'C:\\Users\\abhin\\OneDrive\\Documents\\Computing\\Research\\City of Edmonton Volume Prediction\\City of Edmonton Volume Data Creation\\data\\images'
-   
-    # files = [f'{file_path}\\{image}.png'  for image in files_to_delete]
-    
-    # for file in files:
-    #     os.remove(file)
-    # print('Done')    
+    for dir, subdir,filenames in os.walk('./data/images'):
+        missing_files.extend([int(file.split('.')[0]) for file in filenames])
+        
+    missing_ids = df['Estimation_point'][~df['Estimation_point'].isin(missing_files)]
+    print( f'Downloading {missing_ids.shape[0]} Images.')
+    # create_granular_images(data_file,height=256,width=256,target_list=missing_ids.tolist())
+    create_coarse_output(excel_file=data_file,target_files=missing_ids.tolist(),rows=4)
+      
         

@@ -388,19 +388,33 @@ def return_roi(point:Point,margin:int)->Polygon:
 
 if __name__ == "__main__":
     # Do not delete
-    now = datetime.datetime.now()
-    df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
-    unclean_file = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
-    roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
-    speed_shp_file = './data/shape_files/geo_export_c308b940-35d0-404d-80ad-acad001f34a2.shp'
-    land_usage_file = './data/excel_files/Land Use Features.csv'
-    taz_file1 = './data/shape_files/TAZ1718.shp'
-    buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
+    # now = datetime.datetime.now()
+    # df_save_name = f'./data/excel_files/features{now.month}-{now.day}-{now.year}.xlsx'
+    # unclean_file = './data/excel_files/Miovision Aggregate Data (Updated 2025).xlsx'
+    # roadclass_shp_file = './data/shape_files/RoadClass_CoE.shp'
+    # speed_shp_file = './data/shape_files/geo_export_c308b940-35d0-404d-80ad-acad001f34a2.shp'
+    # land_usage_file = './data/excel_files/Land Use Features.csv'
+    # taz_file1 = './data/shape_files/TAZ1718.shp'
+    # buildings = './data/shape_files/gis_osm_buildings_a_free_1.shp'
     
     # Start from here
     
-    crop_buildings(buildings)
-    
+    # crop_buildings(buildings)
+    df = pd.read_csv('./data/excel_files/745_points.csv')
+    # df = df[df['Removed?'] == 0]
+    gdf = gpd.read_file('./data/shape_files/RoadClass_CoE.shp')
+    gdf = gdf.to_crs(epsg=4326)
+    gdf['FID'] = gdf.index.to_series()
+    result = pd.merge(left=df,right=gdf,left_on='Road Class FID',right_on='FID')
+    result = result.rename(mapper={'geometry':'roadgeo'},axis=1)
+    result['centroids'] = result['roadgeo'].apply(lambda x: x.centroid)
+    result = result.drop(labels=["roadgeo"],axis=1)
+    # result.to_csv('./data/excel_files/1.5_geometry.csv')
+    # df = pd.read_csv('./data/excel_files/745_points.csv')
+    # df['roadgeo'] = df['roadgeo'].apply(loads)
+    gdf = gpd.GeoDataFrame(result,geometry="centroids",crs="EPSG:4326")
+    gdf = gdf.to_crs(epsg=3780)
+    gdf.to_file('./data/shape_files/745_centroids_new.shp')
     
     
     
