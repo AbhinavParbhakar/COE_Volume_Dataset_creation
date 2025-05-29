@@ -40,19 +40,21 @@ def main():
 
     # # Get the vector layer by name
     vector_layer = map.listLayers(vector_layer_name)[0]
+    road_layer = map.listLayers("745")[0]
 
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     # Prepare fields list for cursor
-    fields = [attribute_field, "SHAPE@"]
+    fields = [attribute_field, "SHAPE@","OID@"]
     i = 0
     with arcpy.da.SearchCursor(vector_layer, fields) as cursor:
         for row in cursor:
             i += 1
             attr_value = row[0]
             geom = row[1]
+            oid = row[2]
 
             # Get geometry extent
             extent = geom.extent
@@ -60,8 +62,8 @@ def main():
             # # Handle zero-area extent (e.g., points) by buffering
             # if extent.XMin == extent.XMax and extent.YMin == extent.YMax:
             #     # Point or zero-area geometry - create buffered extent around point
-            x_buffer = 40
-            y_buffer = 40
+            x_buffer = 200
+            y_buffer = 200
             buffered_extent = arcpy.Extent(
                 extent.XMin - x_buffer,
                 extent.YMin - y_buffer,
@@ -71,9 +73,15 @@ def main():
             # vector_layer.visible = False
 
             map_frame.camera.setExtent(buffered_extent)
+            road_layer.visible = True
+            query = f"ESTIMATION IN ({attr_value})"
+            road_layer.definitionQuery = query
+
             safe_attr = str(attr_value).replace(" ", "_").replace("/", "_")
 
             out_path = os.path.join(output_folder, f"{int(float(safe_attr))}.png")
+            
+            
     
             pngFormat = arcpy.mp.CreateExportFormat('PNG',out_path)
             map_frame.export(pngFormat)

@@ -125,6 +125,7 @@ def create_coarse_output(excel_file:str,target_files=None,rows=4)->None:
     
     if target_files:
         df = df[df['Estimation_point'].isin(target_files)]
+    
     df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['roadgeo'])),axis=1)
     arguments = df.apply(lambda x: (x['ee_geometry'],x['Estimation_point'],rows),axis=1)
     
@@ -134,7 +135,7 @@ def create_coarse_output(excel_file:str,target_files=None,rows=4)->None:
 
 def capture_coarse_images(input_file:str,output_name:str,delete_html_file=False):
     # The settings treat the top left corner of the page as (0,0)
-    screenshot_settings = {'height': 712, 'width': 712, 'x': 314, 'y': 17 }
+    screenshot_settings = {'height': 398, 'width': 398, 'x': 463, 'y': 101 }
     
     path = os.path.abspath(input_file)
     with sync_playwright() as p:
@@ -153,9 +154,9 @@ def capture_coarse_images(input_file:str,output_name:str,delete_html_file=False)
         os.remove(input_file)
         
 def create_coarse_html(road_segment:ee.geometry.Geometry,file_path:str,rows:int):
-    graph_centroid = ee.geometry.Geometry.Point(coords=[-113.206044,53.542114])
+    graph_centroid = ee.geometry.Geometry.Point(coords=[-113.146978,53.567974])
     zoom_centroid =   ee.geometry.Geometry.Point(coords=[-113.506804, 53.539434])
-    bounding_box = ee.geometry.Geometry.BBox(north=53.658239,west=-113.730658,south= 53.367852,east=-113.241969)
+    bounding_box = ee.geometry.Geometry.BBox(north=53.707573,west=-113.748449,south=53.383682,east=-113.245944)
     grids = geemap.fishnet(bounding_box,rows=rows,cols=rows)
     
 
@@ -175,7 +176,7 @@ def create_coarse_html(road_segment:ee.geometry.Geometry,file_path:str,rows:int)
     )
     
     map : geemap.Map = geemap.Map()
-    map.center_object(zoom_centroid,11)
+    map.center_object(zoom_centroid,10)
     
     map.add_layer(
         graph, {'bands': ['B4', 'B3', 'B2'], 'min': 0, 'max': 2000}, 'graph'
@@ -259,6 +260,6 @@ if __name__ == "__main__":
     missing_ids = df['Estimation_point'][~df['Estimation_point'].isin(missing_files)]
     print( f'Downloading {missing_ids.shape[0]} Images.')
     # create_granular_images(data_file,height=256,width=256,target_list=missing_ids.tolist())
-    create_coarse_output(excel_file=data_file,target_files=missing_ids.tolist(),rows=4)
+    create_coarse_output(excel_file=data_file,target_files=missing_ids.tolist(),rows=8)
       
         
