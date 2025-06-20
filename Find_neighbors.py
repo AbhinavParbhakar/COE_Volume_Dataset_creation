@@ -30,7 +30,7 @@ class Neighbors:
         for _, row in self.point_df.iterrows():
             road = row['Road Class FID']
             point = row['Point ID']
-            self.road_lengths[road] = point
+            self.road_to_point[road] = point
 
     def find_data_point(self,current_road, original_road, visited, current_distance):
         if current_road in self.road_to_point and current_road != original_road:
