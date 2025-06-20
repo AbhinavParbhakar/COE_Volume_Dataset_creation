@@ -5,7 +5,7 @@ import os
 # === USER CONFIGURATION ===
 aprx_path = "C:/Users/abhin/OneDrive/Documents/ArcGIS/Projects/Research/Research.aprx"    # Path to your ArcGIS Pro project file
 output_folder = "C:/Users/abhin/OneDrive/Documents/Computing/Research/City of Edmonton Volume Prediction/City of Edmonton Volume Data Creation/data/images"   # Folder to save exported images
-vector_layer_name = "Road_Centroids"      # Exact vector layer name in the map
+vector_layer_name = "All_Points_Centroids"      # Exact vector layer name in the map
 attribute_field = "Estimation"                        # Attribute field name to use for naming output files
 buffer_distance = 100                           # Buffer distance around each feature extent (map units)
 
@@ -40,21 +40,22 @@ def main():
 
     # # Get the vector layer by name
     vector_layer = map.listLayers(vector_layer_name)[0]
-    road_layer = map.listLayers("745")[0]
+    vector_layer.visible = False
+    road_layer = map.listLayers("All_Points")[0]
 
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     # Prepare fields list for cursor
-    fields = [attribute_field, "SHAPE@","OID@"]
+    fields = [attribute_field, "SHAPE@"]
     i = 0
     with arcpy.da.SearchCursor(vector_layer, fields) as cursor:
         for row in cursor:
             i += 1
             attr_value = row[0]
             geom = row[1]
-            oid = row[2]
+            # lanes = row[2]
 
             # Get geometry extent
             extent = geom.extent
@@ -62,13 +63,17 @@ def main():
             # # Handle zero-area extent (e.g., points) by buffering
             # if extent.XMin == extent.XMax and extent.YMin == extent.YMax:
             #     # Point or zero-area geometry - create buffered extent around point
-            x_buffer = 200
-            y_buffer = 200
+            # if lanes < 3:
+            #     buffer = 20
+            # elif lanes < 5:
+            #     buffer = 30
+            # else:
+            buffer = 30
             buffered_extent = arcpy.Extent(
-                extent.XMin - x_buffer,
-                extent.YMin - y_buffer,
-                extent.XMax + x_buffer,
-                extent.YMax + y_buffer
+                extent.XMin - buffer,
+                extent.YMin - buffer,
+                extent.XMax + buffer,
+                extent.YMax + buffer
             )
             # vector_layer.visible = False
 

@@ -400,21 +400,18 @@ if __name__ == "__main__":
     # Start from here
     
     # crop_buildings(buildings)
-    df = pd.read_csv('./data/excel_files/745_points.csv')
+    df = pd.read_csv('./data/excel_files/Set2.csv')
     # df = df[df['Removed?'] == 0]
     gdf = gpd.read_file('./data/shape_files/RoadClass_CoE.shp')
     gdf = gdf.to_crs(epsg=4326)
     gdf['FID'] = gdf.index.to_series()
     result = pd.merge(left=df,right=gdf,left_on='Road Class FID',right_on='FID')
     result = result.rename(mapper={'geometry':'roadgeo'},axis=1)
-    result['centroids'] = result['roadgeo'].apply(lambda x: x.centroid)
-    result = result.drop(labels=["roadgeo"],axis=1)
-    # result.to_csv('./data/excel_files/1.5_geometry.csv')
+    result.to_csv('./data/excel_files/Set2_geometry.csv')
+    gdf = gpd.GeoDataFrame(data=result,geometry="roadgeo",crs="EPSG:4326")
+    gdf.to_file("./data/excel_files/Set2.shp")
     # df = pd.read_csv('./data/excel_files/745_points.csv')
     # df['roadgeo'] = df['roadgeo'].apply(loads)
-    gdf = gpd.GeoDataFrame(result,geometry="centroids",crs="EPSG:4326")
-    gdf = gdf.to_crs(epsg=3780)
-    gdf.to_file('./data/shape_files/745_centroids_new.shp')
     
     
     
