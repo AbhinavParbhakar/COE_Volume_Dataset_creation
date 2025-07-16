@@ -100,7 +100,7 @@ def create_granular_images(data_file,target_list=None,height=256,width=256)->lis
         df = df[df['Estimation_point'].isin(target_list)]
     
 
-    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['geometry'])),axis=1)
+    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['roadgeo'])),axis=1)
     arguments = df.apply(lambda x: (x['ee_geometry'],f'./data/html_files/{x['Estimation_point']}.html',height,width),axis=1)
     
     with Pool(multiprocessing.cpu_count()) as p:
@@ -126,7 +126,7 @@ def create_coarse_output(excel_file:str,target_files=None,rows=4)->None:
     if target_files:
         df = df[df['Estimation_point'].isin(target_files)]
     
-    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['geometry'])),axis=1)
+    df['ee_geometry'] = df.apply(lambda x: shapely_to_ee_geom(loads(x['roadgeo'])),axis=1)
     arguments = df.apply(lambda x: (x['ee_geometry'],x['Estimation_point'],rows),axis=1)
     
     with Pool(multiprocessing.cpu_count()) as p:
@@ -250,7 +250,7 @@ def create_coarse_images(road_segment:ee.geometry.Geometry, file_name: str,rows:
     
 
 if __name__ == "__main__":
-    data_file = './data/excel_files/2023_points_geo.csv'    
+    data_file = './data/excel_files/Set2_geometry.csv'    
     df = pd.read_csv(data_file)
     print(df['Estimation_point'].unique().__len__())
     missing_files = []
@@ -262,6 +262,6 @@ if __name__ == "__main__":
     missing_ids = df['Estimation_point'][~df['Estimation_point'].isin(missing_files)]
     print( f'Downloading {missing_ids.shape[0]} Images.')
     # # create_granular_images(data_file,height=256,width=256,target_list=missing_ids.tolist())
-    create_coarse_output(excel_file=data_file,target_files=missing_ids.tolist(),rows=8)
+    create_coarse_output(excel_file=data_file,target_files=missing_ids.tolist(),rows=32)
       
         

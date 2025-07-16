@@ -3,12 +3,12 @@ from Adjacency_matrix import AdjacencyMatrix
 import pandas as pd
 
 if __name__ == "__main__":
-    max_range = 5000 # meters
+    max_range = 500 # meters
     dataset_file = './data/excel_files/Final_Dataset.csv'
     df = pd.read_csv(dataset_file)
     num_points = df.shape[0]
-    threshold_skips = 500 # meters
-    start_distance = 500 # meters
+    threshold_skips = 50 # meters
+    start_distance = 50 # meters
     thresholds = [i for i in range(start_distance,max_range + 1,threshold_skips)]
     for threshold in thresholds:
         neighbor_creation = Neighbors(threshold=threshold,dataset_file=dataset_file)

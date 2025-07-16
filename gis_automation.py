@@ -5,13 +5,13 @@ import os
 # === USER CONFIGURATION ===
 aprx_path = "C:/Users/abhin/OneDrive/Documents/ArcGIS/Projects/Research/Research.aprx"    # Path to your ArcGIS Pro project file
 output_folder = "C:/Users/abhin/OneDrive/Documents/Computing/Research/City of Edmonton Volume Prediction/City of Edmonton Volume Data Creation/data/images"   # Folder to save exported images
-vector_layer_name = "All_Points_Centroids"      # Exact vector layer name in the map
+vector_layer_name = "Set2Centroids"      # Exact vector layer name in the map
 attribute_field = "Estimation"                        # Attribute field name to use for naming output files
 buffer_distance = 100                           # Buffer distance around each feature extent (map units)
 
 # === SCRIPT START ===
 
-def main():
+def main(filenames,buffer):
     # Open the ArcGIS Pro project
     aprx = arcpy.mp.ArcGISProject(aprx_path)
 
@@ -41,7 +41,7 @@ def main():
     # # Get the vector layer by name
     vector_layer = map.listLayers(vector_layer_name)[0]
     vector_layer.visible = False
-    road_layer = map.listLayers("All_Points")[0]
+    road_layer = map.listLayers("Set2-Roads")[0]
 
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
@@ -55,44 +55,53 @@ def main():
             i += 1
             attr_value = row[0]
             geom = row[1]
-            # lanes = row[2]
-
-            # Get geometry extent
-            extent = geom.extent
-            extent = extent.projectAs(camera_spatial_reference)
-            # # Handle zero-area extent (e.g., points) by buffering
-            # if extent.XMin == extent.XMax and extent.YMin == extent.YMax:
-            #     # Point or zero-area geometry - create buffered extent around point
-            # if lanes < 3:
-            #     buffer = 20
-            # elif lanes < 5:
-            #     buffer = 30
-            # else:
-            buffer = 30
-            buffered_extent = arcpy.Extent(
-                extent.XMin - buffer,
-                extent.YMin - buffer,
-                extent.XMax + buffer,
-                extent.YMax + buffer
-            )
-            # vector_layer.visible = False
-
-            map_frame.camera.setExtent(buffered_extent)
-            road_layer.visible = True
-            query = f"ESTIMATION IN ({attr_value})"
-            road_layer.definitionQuery = query
-
+            
             safe_attr = str(attr_value).replace(" ", "_").replace("/", "_")
+            
+            if safe_attr not in filenames:
+                # lanes = row[2]
 
-            out_path = os.path.join(output_folder, f"{int(float(safe_attr))}.png")
-            
-            
-    
-            pngFormat = arcpy.mp.CreateExportFormat('PNG',out_path)
-            map_frame.export(pngFormat)
+                # Get geometry extent
+                extent = geom.extent
+                extent = extent.projectAs(camera_spatial_reference)
+                # # Handle zero-area extent (e.g., points) by buffering
+                # if extent.XMin == extent.XMax and extent.YMin == extent.YMax:
+                #     # Point or zero-area geometry - create buffered extent around point
+                # if lanes < 3:
+                #     buffer = 20
+                # elif lanes < 5:
+                #     buffer = 30
+                # else:
+                buffered_extent = arcpy.Extent(
+                    extent.XMin - buffer,
+                    extent.YMin - buffer,
+                    extent.XMax + buffer,
+                    extent.YMax + buffer
+                )
+                # vector_layer.visible = False
+
+                map_frame.camera.setExtent(buffered_extent)
+                road_layer.visible = True
+                query = f"ESTIMATION IN ({attr_value})"
+                road_layer.definitionQuery = query
+                arcpy.management.SelectLayerByAttribute(road_layer,'NEW_SELECTION',query)
+                # arcpy.management.CreateFea
+
+                
+
+                out_path = os.path.join(output_folder, f"{int(float(safe_attr))}.png")
+                
+                
+        
+                pngFormat = arcpy.mp.CreateExportFormat('PNG',out_path)
+                map_frame.export(pngFormat)
             print(f"Exported image for feature '{safe_attr}' -> {out_path}")
 
     print(f"All features processed and images exported ({i}).")
 
 if __name__ == "__main__":
-    main()
+    files = []
+    for dirpath,dirnames, filenames in  os.walk(top='C:/Users/abhin/OneDrive/Documents/Computing/Research/City of Edmonton Volume Prediction/City of Edmonton Volume Data Creation/data/images'):
+        files.extend([filename.split('.')[0] for filename in filenames])
+        
+    main(files,400)
