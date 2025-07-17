@@ -1,11 +1,44 @@
 import geopandas as gpd
-from shapely import LineString, force_2d
+from shapely import LineString, force_2d, line_interpolate_point, Point
 import numpy as np
 from shapely.wkt import loads
-from shapely.ops import split, snap, transform
+from shapely.ops import split, snap, transform, nearest_points
 import pandas as pd
 
 
+def generate_split(line:LineString,point:Point)->tuple[LineString,LineString]:
+    """
+    Generate two splits of the given line based on the point
+    
+    ### Parameters
+        line: **shapely.LineString**
+        point: **shapely.Point**
+        
+    ### Returns
+        A **tuple[shapely.LineString,shapely.LineString]** object containing the left and right components of the original segment
+        
+    """
+    line_coordinates = [Point(coordinate) for coordinate in list(line.coords)]
+    assert len(line_coordinates) >= 2, "LineString must have at least two points before being split"
+    i = 1
+    insert_index = 0
+    lowest_dis = 1000
+    while i <= len(line_coordinates) - 1:
+        connecting_line = LineString([line_coordinates[i-1],line_coordinates[i]])
+        distance = connecting_line.distance(point)
+        if distance < lowest_dis:
+            lowest_dis = distance
+            insert_index = i
+        
+        i += 1
+    
+    left_component : list[Point] = line_coordinates[:insert_index]
+    left_component.append(point)
+    right_component : list[Point] = [point]
+    right_component.extend(line_coordinates[insert_index:])
+    
+    return (LineString(left_component),LineString(right_component))
+    
 
 def generate_straight_segments_recursive(features_gdf:gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
@@ -25,31 +58,20 @@ def generate_straight_segments_recursive(features_gdf:gpd.GeoDataFrame) -> gpd.G
     features_gdf['Percent_differences'] = abs(features_gdf.geometry.length -  features_gdf['Straight_Distances']) / features_gdf['Straight_Distances']
     
     # Step 2: Create three subsets (geometries with straight segments, geometries that will contain right split, and geometries that will contain left splits)
-    straight_segments = features_gdf[features_gdf['Percent_differences'] == 0.0].copy().reset_index(drop=True)
-    non_straight_segments_split_one = features_gdf[features_gdf['Percent_differences'] != 0.0].copy().reset_index(drop=True)
-    non_straight_segments_split_two = features_gdf[features_gdf['Percent_differences'] != 0.0].copy().reset_index(drop=True)
-    
-    print("Straight segments: ",straight_segments.shape[0])
+    threshold = 0.005
+    straight_segments = features_gdf[features_gdf['Percent_differences'] <= threshold].copy().reset_index(drop=True)
+    non_straight_segments_split_one = features_gdf[features_gdf['Percent_differences'] > threshold].copy().reset_index(drop=True)
+    non_straight_segments_split_two = features_gdf[features_gdf['Percent_differences'] > threshold].copy().reset_index(drop=True)
     
     if straight_segments.shape[0] != features_gdf.shape[0]:
-    
+        
         # Step 3a: Populate split subsets with geometries (If any non-straight geometries)
-        non_straight_segments_split_one['snapped'] = non_straight_segments_split_one.apply(lambda x: snap(x['geometry'],x['geometry'].centroid,tolerance=100),axis=1)
-        non_straight_segments_split_one['old_centroids'] = non_straight_segments_split_one.geometry.centroid
-        non_straight_segments_split_one['geometry'] = non_straight_segments_split_one.apply(lambda x: loads(split(x['snapped'],x['old_centroids']).wkt).geoms[0],axis=1)
+        non_straight_segments_split_one['midpoints'] = non_straight_segments_split_one.apply(lambda x: line_interpolate_point(x['geometry'],x['geometry'].length / 2),axis=1)
+        non_straight_segments_split_one['geometry'] = non_straight_segments_split_one.apply(lambda x: generate_split(x['geometry'],x['midpoints'])[0],axis=1)
         
-        try:
-            non_straight_segments_split_two['snapped'] = non_straight_segments_split_two.apply(lambda x: snap(x['geometry'],x['geometry'].centroid,tolerance=100),axis=1)
-            non_straight_segments_split_two['old_centroids'] = non_straight_segments_split_two.geometry.centroid
-            non_straight_segments_split_two['geometry'] = non_straight_segments_split_two.apply(lambda x: loads(split(x['snapped'],x['old_centroids']).wkt).geoms[1],axis=1)
-        
-        except:
-            for index, row in non_straight_segments_split_two.iterrows():
-                try:
-                    right = loads(split(row['snapped'],row['old_centroids']).wkt).geoms[0]
-                    left = loads(split(row['snapped'],row['old_centroids']).wkt).geoms[1]
-                except:
-                    print('Estimation point with the problem is:', row['Estimation'])
+        non_straight_segments_split_two['midpoints'] = non_straight_segments_split_two.apply(lambda x: line_interpolate_point(x['geometry'],x['geometry'].length / 2),axis=1)
+        non_straight_segments_split_two['geometry'] = non_straight_segments_split_two.apply(lambda x: generate_split(x['geometry'],x['midpoints'])[1],axis=1)
+
     
         # Step 4: Recurse on splits
         results_left_split = generate_straight_segments_recursive(non_straight_segments_split_one)
@@ -88,7 +110,7 @@ def generate_straight_segments_recursive(features_gdf:gpd.GeoDataFrame) -> gpd.G
         return straight_segments
     
     
-    
+
 def generate_straight_segments(path:str) -> gpd.GeoDataFrame:
     """
     Given the path to shp file, generate straight vector geometries for each feature.
@@ -105,6 +127,12 @@ def generate_straight_segments(path:str) -> gpd.GeoDataFrame:
     # Convert the geometry from LINESTRING Z to LINESTRING
     gdf['geometry'] = gdf.apply(lambda x: force_2d(x['geometry']),axis=1)
     straight_segments_gdf = generate_straight_segments_recursive(gdf)
+    straight_segments_gdf['Straight_Distances'] = straight_segments_gdf.apply(lambda x: LineString([x['geometry'].coords[0],x['geometry'].coords[-1]]).length,axis=1)
+    straight_segments_gdf['Percent_differences'] = abs(straight_segments_gdf.geometry.length -  straight_segments_gdf['Straight_Distances']) / straight_segments_gdf['Straight_Distances']
+    
+    print(straight_segments_gdf.shape)
+    print(straight_segments_gdf[straight_segments_gdf['Percent_differences'] > 0.005].shape[0])
+    
     
     
 
